@@ -33,6 +33,7 @@ migrate_working_dir/
 /build/
 /coverage/
 .deploy_pages/
+test-results/
 
 # Symbolication related
 app.*.symbols
