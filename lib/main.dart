@@ -121,6 +121,11 @@ class _MudScreenState extends State<MudScreen> {
                           ),
                   ),
                   const SizedBox(height: 10),
+                  _QuickActionBar(
+                    state: _engine.state,
+                    onCommand: _submitCommand,
+                  ),
+                  const SizedBox(height: 10),
                   _CommandInput(
                     controller: _commandController,
                     focusNode: _inputFocus,
@@ -241,7 +246,7 @@ class _SidePanel extends StatelessWidget {
           _PanelLine(title: '퀘스트', value: questText),
           const SizedBox(height: 10),
           const Text(
-            '추천: 도움말, 소문, 동, 대화 에란, 북, 공격 이끼쥐',
+            '아래 빠른 행동을 누르거나 직접 명령어를 입력할 수 있다.',
             style: TextStyle(color: Color(0xFF9EB892), fontSize: 13),
           ),
         ],
@@ -273,6 +278,150 @@ class _PanelLine extends StatelessWidget {
       ),
     );
   }
+}
+
+class _QuickActionBar extends StatelessWidget {
+  const _QuickActionBar({required this.state, required this.onCommand});
+
+  final GameState state;
+  final ValueChanged<String> onCommand;
+
+  @override
+  Widget build(BuildContext context) {
+    final actions = _buildActions();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F130E),
+        border: Border.all(color: const Color(0xFF30412E)),
+      ),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          const Text(
+            '빠른 행동',
+            style: TextStyle(color: Color(0xFFD8B55B), fontSize: 13),
+          ),
+          for (final action in actions)
+            OutlinedButton.icon(
+              key: ValueKey('quick-${action.command}'),
+              onPressed: () => onCommand(action.command),
+              icon: Icon(action.icon, size: 16),
+              label: Text(action.label),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFE8E3C7),
+                side: const BorderSide(color: Color(0xFF3F563A)),
+                minimumSize: const Size(0, 34),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                textStyle: const TextStyle(fontSize: 13),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  List<QuickAction> _buildActions() {
+    final room = rooms[state.player.locationId]!;
+    final actions = <QuickAction>[];
+
+    const directionLabels = {
+      'north': ('북', Icons.north),
+      'south': ('남', Icons.south),
+      'east': ('동', Icons.east),
+      'west': ('서', Icons.west),
+    };
+
+    for (final entry in room.exits.entries) {
+      final direction = directionLabels[entry.key];
+      if (direction == null) {
+        continue;
+      }
+      actions.add(
+        QuickAction(
+          label: direction.$1,
+          command: direction.$1,
+          icon: direction.$2,
+        ),
+      );
+    }
+
+    for (final npcId in room.npcIds) {
+      final npc = npcs[npcId]!;
+      actions.add(
+        QuickAction(
+          label: '대화 ${npc.shortName}',
+          command: '대화 ${npc.shortName}',
+          icon: Icons.chat_bubble_outline,
+        ),
+      );
+    }
+
+    for (final monsterId in room.monsterIds) {
+      if (state.defeatedMonsterIds.contains(monsterId)) {
+        continue;
+      }
+      final monster = monsters[monsterId]!;
+      actions.add(
+        QuickAction(
+          label: '공격 ${monster.name}',
+          command: '공격 ${monster.name}',
+          icon: Icons.gps_fixed,
+        ),
+      );
+    }
+
+    if (room.id == 'orphe_mine_gate' &&
+        !state.inventory.contains('patrol_note')) {
+      actions.add(
+        const QuickAction(
+          label: '줍기 기록',
+          command: '줍기 기록',
+          icon: Icons.inventory_2_outlined,
+        ),
+      );
+    }
+
+    if (state.inventory.contains('small_potion')) {
+      actions.add(
+        const QuickAction(
+          label: '회복약',
+          command: '사용 회복약',
+          icon: Icons.local_drink_outlined,
+        ),
+      );
+    }
+
+    actions.addAll(const [
+      QuickAction(label: '보기', command: '보기', icon: Icons.visibility_outlined),
+      QuickAction(label: '소문', command: '소문', icon: Icons.campaign_outlined),
+      QuickAction(label: '지도', command: '지도', icon: Icons.map_outlined),
+      QuickAction(label: '상태', command: '상태', icon: Icons.favorite_border),
+      QuickAction(label: '가방', command: '인벤토리', icon: Icons.backpack_outlined),
+      QuickAction(label: '저장', command: '저장', icon: Icons.save_outlined),
+    ]);
+
+    return actions;
+  }
+}
+
+class QuickAction {
+  const QuickAction({
+    required this.label,
+    required this.command,
+    required this.icon,
+  });
+
+  final String label;
+  final String command;
+  final IconData icon;
 }
 
 class _CommandInput extends StatelessWidget {
@@ -357,6 +506,7 @@ class GameEngine {
     }
     if (_matches(command, ['소문', 'rumors', 'rumor'])) return _rumors();
     if (_matches(command, ['공지', 'notices', 'notice'])) return _notices();
+    if (_matches(command, ['지도', 'map'])) return _map();
     if (_matches(command, ['기술', 'skills', 'skill'])) return _skills();
     if (_matches(command, ['전직', 'advance', 'class'])) return _advance();
     if (_matches(command, ['저장', 'save'])) return _save();
@@ -437,7 +587,7 @@ class GameEngine {
   void _help() {
     _log(
       GameLogType.system,
-      '명령어: 도움말, 보기, 북/남/동/서, 이동 [방향], 소문, 공지, 대화 [대상], 공격 [대상], 공격, 도망, 줍기 [아이템], 인벤토리, 사용 [아이템], 상태, 기술, 전직, 저장, 불러오기',
+      '명령어: 도움말, 보기, 북/남/동/서, 이동 [방향], 소문, 공지, 지도, 대화 [대상], 공격 [대상], 공격, 도망, 줍기 [아이템], 인벤토리, 사용 [아이템], 상태, 기술, 전직, 저장, 불러오기',
     );
   }
 
@@ -684,6 +834,19 @@ class GameEngine {
 
   void _notices() {
     _log(GameLogType.rumor, '[공지] 루미르 수비대는 서쪽 폐광으로 향하는 여행자에게 주의를 당부합니다.');
+  }
+
+  void _map() {
+    final current = rooms[state.player.locationId]!.name;
+    _log(GameLogType.system, '지도: 현재 위치는 $current이다.');
+    _log(
+      GameLogType.system,
+      '      [네미르 숲길]\n'
+      '            |\n'
+      '[헤스틴 여관] - [루미르 광장] - [아이긴 초소]\n'
+      '            |\n'
+      '      [오르페 폐광 입구]',
+    );
   }
 
   void _save() {
@@ -991,6 +1154,8 @@ class Npc {
   final String id;
   final String name;
   final String dialogue;
+
+  String get shortName => name.split(' ').last;
 }
 
 class Monster {
